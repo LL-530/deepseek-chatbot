@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>账号管理 · 基于 DeepSeek 的本地聊天机器人</title>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="page">
+    <div class="page-head">
+        <h1>⚙ 账号管理</h1>
+        <span class="badge" id="whoami">-</span>
+        <div class="spacer"></div>
+        <a class="btn btn-ghost btn-sm" href="chat.html">← 返回聊天</a>
+        <button class="btn btn-ghost btn-sm" id="logoutBtn">退出登录</button>
+    </div>
+
+    <div id="alert" class="alert alert-error hidden"></div>
+
+    <!-- 统计卡片 -->
+    <div class="stats">
+        <div class="stat-card accent"><div class="num" id="sTotal">0</div><div class="lbl">账号总数</div></div>
+        <div class="stat-card green"><div class="num" id="sActive">0</div><div class="lbl">启用中</div></div>
+        <div class="stat-card red"><div class="num" id="sDisabled">0</div><div class="lbl">已禁用</div></div>
+        <div class="stat-card"><div class="num" id="sAdmins">0</div><div class="lbl">管理员</div></div>
+    </div>
+
+    <!-- 工具栏 -->
+    <div class="toolbar">
+        <input class="input" id="keyword" placeholder="🔍 按用户名搜索…">
+        <select class="select" id="statusFilter">
+            <option value="">全部状态</option>
+            <option value="1">仅启用</option>
+            <option value="0">仅禁用</option>
+        </select>
+        <button class="btn btn-ghost" id="refreshBtn">刷新</button>
+        <div class="spacer" style="flex:1"></div>
+        <button class="btn" id="addBtn">＋ 新增账号</button>
+    </div>
+
+    <!-- 账号表格 -->
+    <div class="card">
+        <table>
+            <thead>
+            <tr>
+                <th style="width:70px;">ID</th>
+                <th>用户名</th>
+                <th style="width:100px;">角色</th>
+                <th style="width:90px;">状态</th>
+                <th style="width:90px;">消息数</th>
+                <th style="width:170px;">创建时间</th>
+                <th style="width:250px;">操作</th>
+            </tr>
+            </thead>
+            <tbody id="tbody">
+            <tr><td colspan="7" class="empty">加载中…</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- ==================== 通用弹窗 ==================== -->
+<div class="modal-mask hidden" id="modal">
+    <div class="modal">
+        <h3 id="modalTitle">新增账号</h3>
+        <div id="modalAlert" class="alert alert-error hidden"></div>
+
+        <form id="modalForm">
+            <label class="field" id="fUsername">
+                <span>用户名</span>
+                <input class="input" type="text" id="inUsername" placeholder="3-50 位，登录用" autocomplete="off">
+            </label>
+
+            <label class="field" id="fPassword">
+                <span id="lblPassword">密码</span>
+                <input class="input" type="password" id="inPassword" placeholder="至少 6 位" autocomplete="new-password">
+            </label>
+
+            <label class="field" id="fStatus">
+                <span>账号状态</span>
+                <select class="select" id="inStatus">
+                    <option value="1">启用</option>
+                    <option value="0">禁用</option>
+                </select>
+            </label>
+
+            <label class="field" id="fRole">
+                <span>角色</span>
+                <select class="select" id="inRole">
+                    <option value="user">普通用户</option>
+                    <option value="admin">管理员</option>
+                </select>
+            </label>
+
+            <div class="modal-actions">
+                <button type="button" class="btn btn-ghost" id="modalCancel">取消</button>
+                <button type="submit" class="btn" id="modalSubmit">保存</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/common.js"></script>
+<script>
+/* ============================================================
+   admin.js —— 账号管理页逻辑
+   ★ 改前端只需动 frontend/ 目录，后端代码不用碰
+   ============================================================ */
+if (!guard()) throw new Error('未登录');
+
+document.title = '账号管理 · ' + cfg('APP_NAME', '本地聊天机器人');
+
+const me = getUser();
+if (!me || me.role !== 'admin') {
+    alert('只有管理员可以访问账号管理页');
+    location.replace('chat.html');
+}
+
+$('#whoami').textContent = `当前登录：${me.username}（管理员）`;
+$('#logoutBtn').addEventListener('click', logout);
+
+/* ---------------- 列表加载 ---------------- */
+async function loadStats() {
+    try {
+        const s = await api('/api/users/stats');
+        $('#sTotal').textContent = s.total;
+        $('#sActive').textContent = s.active;
+        $('#sDisabled').textContent = s.disabled;
+        $('#sAdmins').textContent = s.admins;
+    } catch (e) { showAlert('#alert', e.message); }
+}
+
+async function loadUsers() {
+    const keyword = $('#keyword').value.trim();
+    const status = $('#statusFilter').value;
+
+    let url = '/api/users?keyword=' + encodeURIComponent(keyword);
+    if (status !== '') url += '&status=' + status;
+
+    const tbody = $('#tbody');
+    try {
+        const data = await api(url);
+        if (!data.items.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="empty">没有符合条件的账号</td></tr>';
+            return;
+        }
+        tbody.innerHTML = data.items.map(u => `
+            <tr>
+                <td>${u.id}</td>
+                <td><b>${escapeHtml(u.username)}</b>${u.id === me.id ? ' <span class="badge">我</span>' : ''}</td>
+                <td><span class="pill ${u.role === 'admin' ? 'pill-admin' : 'pill-user'}">${u.role === 'admin' ? '管理员' : '普通用户'}</span></td>
+                <td><span class="pill ${u.status ? 'pill-on' : 'pill-off'}">${u.status ? '启用' : '禁用'}</span></td>
+                <td>${u.message_count}</td>
+                <td style="color:var(--text-dim)">${formatTime(u.created_at)}</td>
+                <td class="actions">
+                    <button class="btn btn-ghost btn-sm" data-act="pwd"   data-id="${u.id}" data-name="${escapeHtml(u.username)}">改密</button>
+                    <button class="btn btn-ghost btn-sm" data-act="toggle" data-id="${u.id}" data-name="${escapeHtml(u.username)}" data-status="${u.status}">${u.status ? '禁用' : '启用'}</button>
+                    <button class="btn btn-danger btn-sm" data-act="del"  data-id="${u.id}" data-name="${escapeHtml(u.username)}">删除</button>
+                </td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="7" class="empty">加载失败：${escapeHtml(e.message)}</td></tr>`;
+    }
+}
+
+async function reload() {
+    hideAlert('#alert');
+    await Promise.all([loadStats(), loadUsers()]);
+}
+
+$('#refreshBtn').addEventListener('click', reload);
+$('#keyword').addEventListener('input', debounce(loadUsers, 300));
+$('#statusFilter').addEventListener('change', loadUsers);
+
+function debounce(fn, wait) {
+    let timer;
+    return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), wait); };
+}
+
+/* ---------------- 表格操作 ---------------- */
+$('#tbody').addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const { act, id, name, status } = btn.dataset;
+
+    if (act === 'toggle') {
+        const next = Number(status) === 1 ? 0 : 1;
+        if (next === 0 && !confirm(`确定禁用账号「${name}」吗？该账号将无法登录。`)) return;
+        try {
+            await api('/api/users/' + id, { method: 'PUT', body: { status: next } });
+            await reload();
+            showAlert('#alert', `账号「${name}」已${next ? '启用' : '禁用'}`, 'success');
+        } catch (err) { showAlert('#alert', err.message); }
+        return;
+    }
+
+    if (act === 'pwd') {
+        const pwd = prompt(`给账号「${name}」设置新密码（至少 6 位）：`);
+        if (pwd === null) return;
+        if (pwd.length < 6) { showAlert('#alert', '密码至少 6 位'); return; }
+        try {
+            await api('/api/users/' + id, { method: 'PUT', body: { password: pwd } });
+            showAlert('#alert', `账号「${name}」的密码已重置`, 'success');
+        } catch (err) { showAlert('#alert', err.message); }
+        return;
+    }
+
+    if (act === 'del') {
+        if (!confirm(`确定删除账号「${name}」吗？\n该账号的所有会话和聊天记录会一并删除，且不可恢复！`)) return;
+        try {
+            await api('/api/users/' + id, { method: 'DELETE' });
+            await reload();
+            showAlert('#alert', `账号「${name}」已删除`, 'success');
+        } catch (err) { showAlert('#alert', err.message); }
+    }
+});
+
+/* ---------------- 新增账号弹窗 ---------------- */
+const modal = $('#modal');
+
+function openModal() {
+    hideAlert('#modalAlert');
+    $('#modalTitle').textContent = '新增账号';
+    $('#fUsername').classList.remove('hidden');
+    $('#fPassword').classList.remove('hidden');
+    $('#fStatus').classList.remove('hidden');
+    $('#fRole').classList.remove('hidden');
+    $('#lblPassword').textContent = '密码';
+    $('#inUsername').value = '';
+    $('#inPassword').value = '';
+    $('#inStatus').value = '1';
+    $('#inRole').value = 'user';
+    modal.classList.remove('hidden');
+    $('#inUsername').focus();
+}
+
+function closeModal() { modal.classList.add('hidden'); }
+
+$('#addBtn').addEventListener('click', openModal);
+$('#modalCancel').addEventListener('click', closeModal);
+modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+$('#modalForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    hideAlert('#modalAlert');
+
+    const username = $('#inUsername').value.trim();
+    const password = $('#inPassword').value;
+
+    if (username.length < 3) { showAlert('#modalAlert', '用户名至少 3 位'); return; }
+    if (password.length < 6) { showAlert('#modalAlert', '密码至少 6 位'); return; }
+
+    $('#modalSubmit').disabled = true;
+    try {
+        await api('/api/users', {
+            method: 'POST',
+            body: { username, password, status: Number($('#inStatus').value), role: $('#inRole').value }
+        });
+        closeModal();
+        await reload();
+        showAlert('#alert', `账号「${username}」创建成功`, 'success');
+    } catch (err) {
+        showAlert('#modalAlert', err.message);
+    } finally {
+        $('#modalSubmit').disabled = false;
+    }
+});
+
+/* 回车快捷搜索 */
+$('#keyword').addEventListener('keydown', (e) => { if (e.key === 'Enter') loadUsers(); });
+
+/* ---------------- 启动 ---------------- */
+reload();
+</script>
+</body>
+</html>

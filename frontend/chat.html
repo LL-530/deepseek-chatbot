@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>聊天 · 基于 DeepSeek 的本地聊天机器人</title>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="app">
+    <!-- ==================== 左侧栏 ==================== -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-head">
+            <div class="brand">
+                <div class="brand-logo">🤖</div>
+                <div class="brand-text">
+                    <b>本地聊天机器人</b>
+                    <small id="modelName">deepseek-r1:8b</small>
+                </div>
+            </div>
+            <button class="btn btn-block btn-sm" id="newConvBtn">＋ 新建对话</button>
+        </div>
+
+        <div class="conv-list" id="convList"></div>
+
+        <div class="sidebar-foot">
+            <div class="user-box">
+                <div class="avatar" id="avatar">U</div>
+                <div class="info">
+                    <b id="userName">-</b>
+                    <small id="userRole">普通用户</small>
+                </div>
+            </div>
+            <a class="btn btn-ghost btn-sm btn-block hidden" id="adminLink" href="admin.html"
+               style="margin-bottom:8px;">⚙ 账号管理</a>
+            <button class="btn btn-ghost btn-sm btn-block" id="logoutBtn">退出登录</button>
+        </div>
+    </aside>
+
+    <!-- ==================== 主区域 ==================== -->
+    <main class="main">
+        <header class="topbar">
+            <button class="btn btn-ghost btn-sm" id="menuBtn" style="display:none;">☰</button>
+            <h2 id="convTitle">新对话</h2>
+            <span class="badge" id="memBadge">记忆：0 条</span>
+            <button class="btn btn-ghost btn-sm" id="memBtn">记忆状态</button>
+        </header>
+
+        <div class="messages" id="messages">
+            <div class="empty" id="emptyHint">
+                开始和 AI 聊聊吧～ 试试问它「你好，请介绍一下你自己」
+            </div>
+        </div>
+
+        <div class="composer">
+            <div class="composer-inner">
+                <div id="chatAlert" class="alert alert-error hidden"></div>
+                <div class="composer-box">
+                    <textarea id="input" rows="1" placeholder="输入消息，Enter 发送，Shift + Enter 换行"></textarea>
+                    <button class="btn" id="sendBtn">发送</button>
+                </div>
+                <div class="composer-tip">
+                    <span>模型：<b id="tipModel">deepseek-r1:8b</b> · 本地 Ollama 推理</span>
+                    <span id="tipStatus">就绪</span>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- ==================== 记忆状态弹窗 ==================== -->
+<div class="modal-mask hidden" id="memModal">
+    <div class="modal mem-panel">
+        <h3>🧠 对话记忆状态</h3>
+        <div class="mem-grid">
+            <div class="mem-item"><div class="v" id="mTotal">0</div><div class="k">历史消息总数</div></div>
+            <div class="mem-item"><div class="v" id="mWindow">0</div><div class="k">窗口内（原样送模型）</div></div>
+            <div class="mem-item"><div class="v" id="mCompressed">0</div><div class="k">已压缩进摘要</div></div>
+            <div class="mem-item"><div class="v" id="mTrigger">0</div><div class="k">压缩触发阈值</div></div>
+        </div>
+        <div style="font-size:12.5px;color:var(--text-dim);margin-bottom:8px;">
+            历史摘要（由模型自动滚动生成）：
+        </div>
+        <div class="mem-summary" id="mSummary">（暂无摘要，对话变长后会自动生成）</div>
+        <div class="modal-actions">
+            <button class="btn btn-ghost" id="memClose">关闭</button>
+        </div>
+    </div>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/common.js"></script>
+<script>
+/* ============================================================
+   chat.js —— 聊天页逻辑
+   ★ 改前端只需动 frontend/ 目录，后端代码不用碰
+   ============================================================ */
+if (!guard()) throw new Error('未登录');
+
+// ---- 按 config.js 渲染品牌文案 ----
+document.title = '聊天 · ' + cfg('APP_NAME', '本地聊天机器人');
+$('.brand-logo').textContent = cfg('APP_LOGO', '🤖');
+$('.brand-text b').textContent = cfg('APP_NAME', '本地聊天机器人');
+$('#input').placeholder = cfg('INPUT_PLACEHOLDER', '输入消息…');
+
+const BOT_AVATAR = cfg('BOT_AVATAR', '🤖');
+
+const me = getUser() || {};
+let conversations = [];
+let currentConvId = null;
+let streaming = false;
+
+/* ---------------- 初始化 ---------------- */
+(async function init() {
+    renderUser();
+    await loadHealth();
+    await loadConversations();
+})();
+
+function renderUser() {
+    const name = (me && me.username) || 'unknown';
+    $('#userName').textContent = name;
+    $('#avatar').textContent = name.charAt(0).toUpperCase();
+    if (me && me.role === 'admin') {
+        $('#userRole').textContent = '管理员';
+        $('#adminLink').classList.remove('hidden');
+    } else {
+        $('#userRole').textContent = '普通用户';
+    }
+}
+
+async function loadHealth() {
+    try {
+        const h = await api('/api/health');
+        $('#modelName').textContent = h.model;
+        $('#tipModel').textContent = h.model;
+        $('#tipStatus').textContent = h.model_ready ? '模型就绪' : '模型未就绪';
+        $('#tipStatus').style.color = h.model_ready ? 'var(--success)' : 'var(--warn)';
+    } catch (e) { /* 健康检查失败不阻塞使用 */ }
+}
+
+/* ---------------- 会话列表 ---------------- */
+async function loadConversations(selectId) {
+    const data = await api('/api/conversations');
+    conversations = data.items || [];
+    renderConvList();
+
+    const target = selectId || currentConvId || (conversations[0] && conversations[0].id) || null;
+    if (target) {
+        await openConversation(target);
+    } else {
+        currentConvId = null;
+        $('#convTitle').textContent = '新对话';
+        $('#messages').innerHTML = '<div class="empty">还没有会话，发送第一条消息即可自动创建 👋</div>';
+        updateMemBadge({ total_messages: 0, uncompressed_messages: 0 });
+    }
+}
+
+function renderConvList() {
+    const box = $('#convList');
+    if (!conversations.length) {
+        box.innerHTML = '<div style="padding:20px 10px;text-align:center;color:var(--text-faint);font-size:12.5px;">暂无会话</div>';
+        return;
+    }
+    box.innerHTML = conversations.map(c => `
+        <div class="conv-item ${c.id === currentConvId ? 'active' : ''}" data-id="${c.id}">
+            <span class="title" title="${escapeHtml(c.title)}">${escapeHtml(c.title)}</span>
+            <button class="del" data-del="${c.id}" title="删除会话">×</button>
+        </div>
+    `).join('');
+
+    $$('.conv-item', box).forEach(el => {
+        el.addEventListener('click', async (e) => {
+            if (e.target.dataset.del) return;
+            await openConversation(Number(el.dataset.id));
+        });
+    });
+    $$('[data-del]', box).forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const id = Number(btn.dataset.del);
+            if (!confirm('确定删除这个会话吗？聊天记录会一并删除。')) return;
+            try {
+                await api('/api/conversations/' + id, { method: 'DELETE' });
+                if (id === currentConvId) currentConvId = null;
+                await loadConversations();
+            } catch (err) { alert(err.message); }
+        });
+    });
+}
+
+/* ---------------- 打开某个会话（历史回显）---------------- */
+async function openConversation(id) {
+    currentConvId = id;
+    const conv = conversations.find(c => c.id === id);
+    $('#convTitle').textContent = conv ? conv.title : ('会话 #' + id);
+    renderConvList();
+
+    const data = await api(`/api/conversations/${id}/messages`);
+    const box = $('#messages');
+    box.innerHTML = '';
+    (data.items || []).forEach(m => appendMessage(m.role, m.content));
+
+    if (!data.items || !data.items.length) {
+        box.innerHTML = '<div class="empty">这个会话还是空的，说点什么吧～</div>';
+    }
+    scrollToBottom();
+
+    await refreshMemory();
+}
+
+/* ---------------- 新建会话 ---------------- */
+$('#newConvBtn').addEventListener('click', async () => {
+    try {
+        const conv = await api('/api/conversations', { method: 'POST', body: { title: '新对话' } });
+        currentConvId = conv.id;
+        await loadConversations(conv.id);
+        $('#input').focus();
+    } catch (err) { alert(err.message); }
+});
+
+$('#logoutBtn').addEventListener('click', logout);
+
+/* ---------------- 消息渲染 ---------------- */
+function appendMessage(role, content) {
+    const emptyHint = $('#emptyHint');
+    if (emptyHint) emptyHint.remove();
+
+    const row = document.createElement('div');
+    row.className = 'msg-row ' + (role === 'user' ? 'user' : 'ai');
+    row.innerHTML = `
+        <div class="msg-avatar">${role === 'user' ? escapeHtml((me.username || 'U').charAt(0).toUpperCase()) : BOT_AVATAR}</div>
+        <div class="bubble"></div>
+    `;
+    const bubble = row.querySelector('.bubble');
+    if (role === 'user') {
+        bubble.textContent = content;
+    } else {
+        bubble.innerHTML = renderMarkdown(content);
+    }
+    $('#messages').appendChild(row);
+    return row;
+}
+
+/** 创建一条「AI 正在回答」的空消息，返回操作句柄 */
+function createStreamingRow() {
+    const emptyHint = $('#emptyHint');
+    if (emptyHint) emptyHint.remove();
+
+    const row = document.createElement('div');
+    row.className = 'msg-row ai';
+    row.innerHTML = `
+        <div class="msg-avatar">${BOT_AVATAR}</div>
+        <div class="bubble">
+            <details class="thinking hidden"><summary>思考过程</summary><div class="body"></div></details>
+            <div class="content"><span class="cursor"></span></div>
+        </div>
+    `;
+    $('#messages').appendChild(row);
+
+    const thinkBox = row.querySelector('.thinking');
+    const thinkBody = row.querySelector('.thinking .body');
+    const contentBox = row.querySelector('.content');
+
+    let buffer = '';
+    let thinkBuffer = '';
+    let scheduled = false;
+
+    return {
+        pushThinking(text) {
+            thinkBuffer += text;
+            if (thinkBox.classList.contains('hidden')) {
+                thinkBox.classList.remove('hidden');
+                thinkBox.open = true;
+            }
+            thinkBody.textContent = thinkBuffer;
+            schedule();
+        },
+        pushDelta(text) {
+            buffer += text;
+            if (thinkBox.open) thinkBox.open = false;   // 开始正式回答就收起思考过程
+            schedule();
+        },
+        fail(message) {
+            contentBox.innerHTML = `<span style="color:var(--danger)">⚠ ${escapeHtml(message)}</span>`;
+        },
+        finish() {
+            contentBox.innerHTML = renderMarkdown(buffer) || '<span style="color:var(--text-faint)">（模型没有返回内容）</span>';
+            scrollToBottom();
+        },
+        get text() { return buffer; }
+    };
+
+    function schedule() {
+        if (scheduled) return;
+        scheduled = true;
+        requestAnimationFrame(() => {
+            scheduled = false;
+            contentBox.innerHTML = renderMarkdown(buffer) + '<span class="cursor"></span>';
+            scrollToBottom();
+        });
+    }
+}
+
+function scrollToBottom() {
+    const box = $('#messages');
+    box.scrollTop = box.scrollHeight;
+}
+
+/* ---------------- 发送消息（核心：fetch + ReadableStream）---------------- */
+async function sendMessage() {
+    if (streaming) return;
+    const input = $('#input');
+    const text = input.value.trim();
+    if (!text) return;
+
+    hideAlert('#chatAlert');
+    input.value = '';
+    autoResize();
+
+    appendMessage('user', text);
+    const ai = createStreamingRow();
+    scrollToBottom();
+
+    streaming = true;
+    setSending(true);
+
+    const payload = { message: text };
+    if (currentConvId) payload.conversation_id = currentConvId;
+
+    try {
+        const resp = await fetch(apiUrl('/api/chat/stream'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + getToken()
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (resp.status === 401) { clearAuth(); location.replace('login.html'); return; }
+        if (!resp.ok) {
+            const t = await resp.text();
+            throw new Error(`HTTP ${resp.status} ${t.slice(0, 200)}`);
+        }
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buf = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+
+            // SSE 以空行分隔事件
+            let idx;
+            while ((idx = buf.indexOf('\n\n')) >= 0) {
+                const chunk = buf.slice(0, idx);
+                buf = buf.slice(idx + 2);
+                const line = chunk.split('\n').find(l => l.startsWith('data:'));
+                if (!line) continue;
+                let evt;
+                try { evt = JSON.parse(line.slice(5).trim()); } catch (e) { continue; }
+                handleEvent(evt, ai);
+            }
+        }
+    } catch (err) {
+        ai.fail(err.message || '网络异常');
+    } finally {
+        ai.finish();
+        streaming = false;
+        setSending(false);
+        await loadConversations(currentConvId);
+    }
+}
+
+function handleEvent(evt, ai) {
+    switch (evt.type) {
+        case 'meta':
+            if (evt.conversation_id && evt.conversation_id !== currentConvId) {
+                currentConvId = evt.conversation_id;
+            }
+            break;
+        case 'thinking':
+            ai.pushThinking(evt.content);
+            break;
+        case 'delta':
+            ai.pushDelta(evt.content);
+            break;
+        case 'compressed':
+            showAlert('#chatAlert', `🧠 历史消息已自动压缩为摘要（已压缩 ${evt.compressed_messages} 条，摘要 ${evt.summary.length} 字）`, 'info');
+            updateMemBadge(evt);
+            break;
+        case 'error':
+            ai.fail(evt.message);
+            break;
+        case 'done':
+            if (evt.memory) updateMemBadge(evt.memory);
+            break;
+    }
+}
+
+function setSending(on) {
+    $('#sendBtn').disabled = on;
+    $('#sendBtn').textContent = on ? '生成中…' : '发送';
+    $('#tipStatus').textContent = on ? '正在生成…' : '就绪';
+    if (!on) $('#tipStatus').style.color = '';
+}
+
+/* ---------------- 记忆状态 ---------------- */
+function updateMemBadge(mem) {
+    if (!mem) return;
+    $('#memBadge').textContent = `记忆：${mem.total_messages || 0} 条`;
+    $('#mTotal').textContent = mem.total_messages ?? 0;
+    $('#mWindow').textContent = mem.window_messages ?? 0;
+    $('#mCompressed').textContent = mem.compressed_messages ?? 0;
+    $('#mTrigger').textContent = mem.compress_trigger ?? 0;
+    $('#mSummary').textContent = mem.summary || '（暂无摘要，对话变长后会自动生成）';
+}
+
+async function refreshMemory() {
+    if (!currentConvId) return;
+    try {
+        updateMemBadge(await api(`/api/conversations/${currentConvId}/memory`));
+    } catch (e) { /* ignore */ }
+}
+
+$('#memBtn').addEventListener('click', async () => {
+    await refreshMemory();
+    $('#memModal').classList.remove('hidden');
+});
+$('#memClose').addEventListener('click', () => $('#memModal').classList.add('hidden'));
+$('#memModal').addEventListener('click', (e) => {
+    if (e.target.id === 'memModal') $('#memModal').classList.add('hidden');
+});
+
+/* ---------------- 输入框行为 ---------------- */
+const inputEl = $('#input');
+
+function autoResize() {
+    inputEl.style.height = 'auto';
+    inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
+}
+
+inputEl.addEventListener('input', autoResize);
+inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        sendMessage();
+    }
+});
+$('#sendBtn').addEventListener('click', sendMessage);
+
+/* 移动端侧栏开关 */
+if (window.innerWidth <= 760) {
+    $('#menuBtn').style.display = 'inline-flex';
+    $('#menuBtn').addEventListener('click', () => $('#sidebar').classList.toggle('open'));
+}
+</script>
+</body>
+</html>

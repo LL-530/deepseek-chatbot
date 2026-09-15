@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 · 基于 DeepSeek 的本地聊天机器人</title>
+    <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="login-wrap">
+    <div class="login-card">
+        <div class="login-logo" id="logoBox">🤖</div>
+        <h1 id="appTitle">本地聊天机器人</h1>
+        <p class="sub" id="appSubtitle">DeepSeek · 本地部署 · 记忆增强</p>
+
+        <div id="alert" class="alert alert-error hidden"></div>
+
+        <form id="loginForm" autocomplete="off">
+            <label class="field">
+                <span>用户名</span>
+                <input class="input" type="text" id="username" placeholder="请输入用户名" required>
+            </label>
+            <label class="field">
+                <span>密码</span>
+                <input class="input" type="password" id="password" placeholder="请输入密码" required>
+            </label>
+            <button class="btn btn-block" type="submit" id="submitBtn">登 录</button>
+        </form>
+
+        <div class="login-foot" id="loginFoot">
+            默认管理员账号：<code>admin</code> / <code>admin123</code><br>
+            普通账号请让管理员在「账号管理」里创建
+        </div>
+    </div>
+</div>
+
+<script src="js/config.js"></script>
+<script src="js/common.js"></script>
+<script>
+    // 已经登录过就直接进聊天页
+    if (getToken()) location.replace('chat.html');
+
+    // ---- 按 config.js 渲染界面文案（改前端只动这个文件）----
+    document.title = cfg('LOGIN_TITLE', '登录') + ' · ' + cfg('APP_NAME', '聊天机器人');
+    $('#logoBox').textContent = cfg('APP_LOGO', '🤖');
+    $('#appTitle').textContent = cfg('LOGIN_TITLE', '本地聊天机器人');
+    $('#appSubtitle').textContent = cfg('APP_SUBTITLE', '');
+    $('#loginFoot').innerHTML = cfg('LOGIN_HINT', '');
+
+    const form = $('#loginForm');
+    const btn = $('#submitBtn');
+
+    form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        hideAlert('#alert');
+
+        const username = $('#username').value.trim();
+        const password = $('#password').value;
+        if (!username || !password) {
+            showAlert('#alert', '请填写用户名和密码');
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = '登录中…';
+        try {
+            const data = await api('/api/login', {
+                method: 'POST',
+                body: { username, password }
+            });
+            saveAuth(data.token, data.user);
+            location.replace('chat.html');
+        } catch (err) {
+            showAlert('#alert', err.message || '登录失败，请重试');
+            btn.disabled = false;
+            btn.textContent = '登 录';
+        }
+    });
+</script>
+</body>
+</html>

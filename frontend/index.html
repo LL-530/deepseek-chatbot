@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>基于 DeepSeek 的本地聊天机器人</title>
+    <script>
+        // 已登录直接进聊天页，否则去登录页
+        location.replace(localStorage.getItem('ds_token') ? 'chat.html' : 'login.html');
+    </script>
+</head>
+<body></body>
+</html>
