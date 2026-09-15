@@ -1,0 +1,22 @@
+# ===== 基于 DeepSeek 的本地聊天机器人 · 依赖清单 =====
+# 安装： pip install -r requirements.txt
+
+# --- Web 框架 ---
+fastapi>=0.115.6,<0.116
+uvicorn[standard]>=0.34.0,<0.35
+python-multipart>=0.0.20
+
+# --- 数据库（原生 SQL，不用 ORM）---
+PyMySQL>=1.1.1
+cryptography>=44.0.0          # MySQL 8 caching_sha2_password 认证需要
+
+# --- LangChain（对话记忆 MessagesPlaceholder / 摘要压缩）---
+langchain-core>=0.3.34,<0.4
+langchain-community>=0.3.17,<0.4
+langchain-ollama>=0.2.2,<0.4
+
+# --- HTTP 客户端（调用 Ollama 接口做启动自检）---
+httpx>=0.27.0
+
+# --- 配置 ---
+python-dotenv>=1.0.1

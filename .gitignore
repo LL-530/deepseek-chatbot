@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# 环境变量（含数据库密码，不要提交）
+.env
+
+# IDE
+.idea/
+.vscode/
+
+# 日志
+*.log
+logs/
+
+# 本地工作区数据（AI 助手的项目记忆与开发日志，不属于项目源码）
+.workbuddy-ai/
+
+# 中间产物
+output/
