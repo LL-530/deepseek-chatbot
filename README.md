@@ -57,9 +57,9 @@
 |:---:|:---:|
 | ![登录页](docs/screenshots/01-login.png) | ![聊天页](docs/screenshots/04-chat-done.png) |
 
-| 账号管理页 | 会话列表 |
+| 账号管理页 | 对话记忆状态 |
 |:---:|:---:|
-| ![管理页](docs/screenshots/05-admin.png) | ![会话列表](docs/screenshots/02-chat-empty.png) |
+| ![管理页](docs/screenshots/05-admin.png) | ![记忆状态](docs/screenshots/06-memory-panel.png) |
 
 ---
 
@@ -87,6 +87,7 @@ deepseek-chatbot/
 │   └── js/
 │       ├── config.js           # ★ 前端唯一配置文件（后端地址 / 文案 / 主题色）
 │       └── common.js           # 公共工具 + Markdown 渲染
+├── docs/screenshots/           # 界面截图（README 里引用）
 ├── sql/init.sql                # 数据库初始化脚本
 ├── run.py                      # 一键启动脚本
 ├── tests/test_e2e.py           # 端到端自检（39 项断言）
@@ -358,35 +359,10 @@ chat_history     -- 聊天历史表
 
 ---
 
-## 十二、绿色免安装版（给别人用）
+## 十二、另有一个 Windows 绿色免安装版（给别人用）
 
-源码版需要对方自己装 Python / MySQL / Ollama。如果要把项目**直接交给别人用**，
-另有一个打包好的绿色版：
-
-```
-F:\DeepSeek聊天机器人-绿色版\          （6.7 GB 文件夹）
-F:\pythonProject\DeepSeek聊天机器人-绿色版.zip   （6.0 GB 压缩包）
-```
-
-对方解压后双击 `启动.bat` 即可，**不需要安装任何东西**。
-
-包内已经装好了：
-
-| 组件 | 做法 |
-|------|------|
-| Python 3.13 | 官方 embeddable 版 + 全部依赖 |
-| MySQL 8.0 | 免安装绿色版，首次启动自动初始化 |
-| Ollama | 精简版（只保留 CPU 推理库，2.8 GB → 73 MB） |
-| 模型 | `deepseek-r1:8b`（主）+ `deepseek-r1:1.5b`（低配机器兜底） |
-
-启动器会自动检测内存选模型、处理端口冲突、预加载模型、打开浏览器。
-
-**打包时踩的坑**（详见包内 `开发者说明.md`）：
-
-- MySQL 8.0 在 Windows 上**完全不支持中文路径** —— `mysqld.exe` 自身路径、`basedir`、
-  `datadir`、`log-error` 四个必须全是纯 ASCII。用 `subst` 虚拟盘符解决，
-  所以文件夹可以随便改名（含中文）。
-- 不能加 `--skip-name-resolve`，否则 `ERROR 1130 Host is not allowed to connect`。
-- 嵌入式 Python 的 `._pth` 会让 `PYTHONPATH` 失效，uvicorn 必须用 `--app-dir`。
-- `ollama create` 导入社区 GGUF 会校验失败，改成手工构造模型清单。
+本仓库是**源码版**，需要对方自己装 Python / MySQL / Ollama。
+如果只是要把项目**直接交给别人用**，另有一个打包好的 Windows 绿色版
+（Python + MySQL + Ollama + 模型全装好，双击 `启动.bat` 即可，零安装），
+通过网盘分发，不在本仓库内。
 
