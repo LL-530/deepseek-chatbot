@@ -59,7 +59,7 @@
 
 | 账号管理页 | 对话记忆状态 |
 |:---:|:---:|
-| ![管理页](docs/screenshots/05-admin.png) | ![记忆状态](docs/screenshots/06-memory-panel.png) |
+| ![管理页](docs/screenshots/05-admin.png) |
 
 ---
 
