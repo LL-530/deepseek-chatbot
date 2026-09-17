@@ -57,12 +57,8 @@
 |:---:|:---:|
 | ![登录页](docs/screenshots/01-login.png) | ![聊天页](docs/screenshots/04-chat-done.png) |
 
-| 账号管理页 |
-|:---:|:---:|
-| ![管理页](docs/screenshots/05-admin.png) |
-
----
-
+ 账号管理页 
+![管理页](docs/screenshots/05-admin.png) |
 ## 四、目录结构
 
 ```
