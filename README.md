@@ -57,7 +57,7 @@
 |:---:|:---:|
 | ![登录页](docs/screenshots/01-login.png) | ![聊天页](docs/screenshots/04-chat-done.png) |
 
-| 账号管理页 | 对话记忆状态 |
+| 账号管理页 |
 |:---:|:---:|
 | ![管理页](docs/screenshots/05-admin.png) |
 
